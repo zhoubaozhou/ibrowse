@@ -629,17 +629,17 @@ send_req_1(From,
                 port = Port} = Url,
            Headers, Method, Body, Options, Timeout,
            #state{socket = undefined} = State) ->
-    {Host_1, Port_1, State_1} =
+    {Host_1, Port_1, State_1, UseProxy} =
         case get_value(proxy_host, Options, false) of
             false ->
-                {Host, Port, State};
+                {Host, Port, State, false};
             PHost ->
                 ProxyUser     = get_value(proxy_user, Options, []),
                 ProxyPassword = get_value(proxy_password, Options, []),
                 Digest        = http_auth_digest(ProxyUser, ProxyPassword),
                 {PHost, get_value(proxy_port, Options, 80),
                  State#state{use_proxy = true,
-                             proxy_auth_digest = Digest}}
+                             proxy_auth_digest = Digest}, true}
         end,
     State_2 = check_ssl_options(Options, State_1),
     do_trace("Connecting...~n", []),
@@ -652,8 +652,13 @@ send_req_1(From,
             send_req_1(From, Url, Headers, Method, Body, Options, Timeout, State_3);
         Err ->
             shutting_down(State_2),
+            % should return conn_failed or proxy_conn_failed
             do_trace("Error connecting. Reason: ~1000.p~n", [Err]),
-            gen_server:reply(From, {error, {conn_failed, Err}}),
+            ReplyMsg = case UseProxy of
+                true -> {proxy_conn_failed, Err};
+                _ -> {conn_failed, Err}
+            end,
+            gen_server:reply(From, {error, ReplyMsg}),
             {stop, normal, State_2}
     end;
 
